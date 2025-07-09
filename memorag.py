@@ -43,7 +43,7 @@ def build_memory_index(texts: list[str]):
     for doc_id, text in enumerate(texts):
         for chunk in _split_into_chunks(text):
             # Obtain key-value compressed embedding via ChatCompletion
-            response = openai.ChatCompletion.create(
+            response = openai.chat.completions.create(
                 model="o4-mini",
                 messages=[{"role": "system", "content": "Embed the following text as a space-separated vector."},
                           {"role": "user", "content": chunk}]
@@ -68,7 +68,7 @@ def build_memory_index(texts: list[str]):
 
 def generate_clue(query: str) -> str:
     """Generate a short draft answer (the \"clue\") for the user query."""
-    response = openai.ChatCompletion.create(
+    response = openai.chat.completions.create(
         model="o4-mini",
         messages=[{"role": "user", "content": query}]
     )
@@ -78,7 +78,7 @@ def generate_clue(query: str) -> str:
 def retrieve_chunks(clue: str, index, chunk_map: dict[int, str], k: int = 3) -> list[str]:
     """Retrieve top-k relevant chunks from the FAISS index using the clue."""
     # Extract salient phrases to form a retrieval query
-    resp = openai.ChatCompletion.create(
+    resp = openai.chat.completions.create(
         model="o4-mini",
         messages=[
             {"role": "system", "content": "Extract key phrases for retrieval."},
@@ -88,7 +88,7 @@ def retrieve_chunks(clue: str, index, chunk_map: dict[int, str], k: int = 3) -> 
     retrieval_query = resp['choices'][0]['message']['content']
 
     # Encode the retrieval query into an embedding
-    emb_resp = openai.ChatCompletion.create(
+    emb_resp = openai.chat.completions.create(
         model="o4-mini",
         messages=[{"role": "system", "content": "Embed the following text as a space-separated vector."},
                   {"role": "user", "content": retrieval_query}]
@@ -105,7 +105,7 @@ def generate_final_answer(query: str, retrieved_chunks: list[str]) -> str:
     """Generate the final answer using the retrieved chunks and original query."""
     context = '\n'.join(retrieved_chunks)
     prompt = f"Context:\n{context}\n\nUser question: {query}"
-    response = openai.ChatCompletion.create(
+    response = openai.chat.completions.create(
         model="o4-mini",
         messages=[{"role": "system", "content": "Use the context to answer precisely."},
                   {"role": "user", "content": prompt}]
