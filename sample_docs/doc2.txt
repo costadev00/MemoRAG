@@ -1,1 +1,2 @@
 The system builds a FAISS index of compressed embeddings for quick similarity search. Queries are answered by retrieving the most relevant chunks and generating a precise answer.
+

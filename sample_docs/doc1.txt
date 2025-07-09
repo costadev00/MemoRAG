@@ -1,1 +1,2 @@
 MemoRAG is a Retrieval-Augmented Generation framework designed to efficiently handle very long contexts. It compresses documents into compact memory tokens and retrieves only the most relevant evidence to answer queries.
+
