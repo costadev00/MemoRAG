@@ -32,3 +32,22 @@ MemoRAG is a next‐generation Retrieval-Augmented Generation framework designed
    ```bash
    git clone https://github.com/costadev00/MemoRAG.git
    cd MemoRAG
+   ```
+
+2. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Run the demo**
+   ```bash
+   python memorag.py
+   ```
+
+
+Run `benchmark.py` to compare baseline and optimized modes.
+
+### Performance Notes
+
+- Parallel ingestion and cached embeddings follow the memory construction algorithm (Sec.3.1).
+- Clue generation and retrieval timings verify the dual-LLM split (Fig.3).
