@@ -141,28 +141,34 @@ def generate_clue(query: str) -> str:
     return response.choices[0].message.content
 
 
-def retrieve_chunks(clue: str, index, chunk_map: dict[int, str], k: int = 3) -> list[str]:
+def retrieve_chunks(clue: str, index, chunk_map: dict[int, dict], k: int = 3) -> list[str]:
     """Retrieve top-k relevant chunks from the FAISS index using the clue."""
-    # Extract salient phrases to form a retrieval query
-    resp = openai.chat.completions.create(
-        model="o4-mini",
-        messages=[
-            {"role": "system", "content": "Extract key phrases for retrieval."},
-            {"role": "user", "content": clue}
+    try:
+        resp = openai.chat.completions.create(
+            model="o4-mini",
+            messages=[
+                {"role": "system", "content": "Extract key phrases for retrieval."},
+                {"role": "user", "content": clue}
+            ]
+        )
+        retrieval_query = resp.choices[0].message.content
+
+        emb_resp = openai.embeddings.create(
+            model="text-embedding-3-large",
+            input=retrieval_query
+        )
+        query_vec = np.array(emb_resp.data[0].embedding, dtype='float32').reshape(1, -1)
+
+        distances, indices = index.search(query_vec, k)
+        # Format each chunk as a string for joining later
+        retrieved = [
+            f"{chunk_map[idx]['filename']} (pages {chunk_map[idx]['pages']})"
+            for idx in indices[0] if idx in chunk_map
         ]
-    )
-    retrieval_query = resp.choices[0].message.content
-
-    # Correct: Use the embeddings endpoint for the retrieval query
-    emb_resp = openai.embeddings.create(
-        model="text-embedding-3-large",
-        input=retrieval_query
-    )
-    query_vec = np.array(emb_resp.data[0].embedding, dtype='float32').reshape(1, -1)
-
-    distances, indices = index.search(query_vec, k)
-    retrieved = [chunk_map[idx] for idx in indices[0] if idx in chunk_map]
-    return retrieved
+        return retrieved
+    except Exception as err:
+        logging.warning(f"Chunk retrieval failed: {err}")
+        return []
 
 
 def generate_final_answer(query: str, retrieved_chunks: list[str]) -> str:
@@ -184,9 +190,12 @@ def main():
     load_env()
     index, chunk_map = ingest_documents('sample_docs')
 
-    query = "What is MemoRAG?"
+    query = "How can I teach history to my student that have ADHD? What are the best pratices"
     clue = generate_clue(query)
     relevant_chunks = retrieve_chunks(clue, index, chunk_map)
+    if not relevant_chunks:
+        print("No relevant chunks found.")
+        return
     final_answer = generate_final_answer(query, relevant_chunks)
     print("Final answer:\n", final_answer)
 
