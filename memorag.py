@@ -4,6 +4,8 @@ import openai
 import faiss
 import numpy as np
 from pathlib import Path
+from PyPDF2 import PdfReader
+import logging
 
 # ------------------------------------------------------------
 # Environment setup
@@ -18,14 +20,80 @@ def load_env(env_path: str = '.env') -> None:
 # Ingest step
 # ------------------------------------------------------------
 
-def ingest_documents(directory: str) -> list[str]:
-    """Read all text documents from the given directory."""
-    texts = []
-    for path in Path(directory).glob('**/*'):
-        if path.is_file():
-            with open(path, 'r', encoding='utf-8') as f:
-                texts.append(f.read())
-    return texts
+def ingest_documents(directory: str):
+    """Ingest PDF documents and build a FAISS index of compressed embeddings."""
+
+    embeddings = []
+    chunk_map = {}
+    chunk_id = 0
+
+    for path in Path(directory).rglob('*.pdf'):
+        try:
+            reader = PdfReader(str(path))
+        except Exception as err:
+            logging.warning(f"Failed to open {path.name}: {err}")
+            continue
+
+        tokens: list[str] = []
+        token_pages: list[int] = []
+
+        for p_idx, page in enumerate(reader.pages, start=1):
+            try:
+                text = page.extract_text() or ""
+            except Exception as err:
+                logging.warning(f"Failed reading {path.name} page {p_idx}: {err}")
+                text = ""
+
+            words = text.split()
+            tokens.extend(words)
+            token_pages.extend([p_idx] * len(words))
+
+        for i in range(0, len(tokens), 4096):
+            end = min(i + 4096, len(tokens))
+            chunk_text = ' '.join(tokens[i:end])
+            start_page = token_pages[i] if token_pages else 1
+            end_page = token_pages[end - 1] if token_pages else start_page
+            page_range = (
+                f"{start_page}" if start_page == end_page else f"{start_page}-{end_page}"
+            )
+
+            try:
+                resp = openai.chat.completions.create(
+                    model="o4-mini",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "Compress this chunk into key-value memory.",
+                        },
+                        {"role": "user", "content": chunk_text},
+                    ],
+                )
+                compressed = resp.choices[0].message.content
+
+                emb_resp = openai.embeddings.create(
+                    model="text-embedding-3-large",
+                    input=compressed,
+                )
+                vector = np.array(emb_resp.data[0].embedding, dtype="float32")
+
+                embeddings.append(vector)
+                chunk_map[chunk_id] = {
+                    "filename": path.name,
+                    "pages": page_range,
+                }
+                chunk_id += 1
+            except Exception as err:
+                logging.warning(
+                    f"Embedding generation failed for {path.name} pages {page_range}: {err}"
+                )
+
+    if not embeddings:
+        raise ValueError("No documents ingested for indexing.")
+
+    dim = len(embeddings[0])
+    index = faiss.IndexFlatL2(dim)
+    index.add(np.vstack(embeddings))
+    return index, chunk_map
 
 
 def _split_into_chunks(text: str, chunk_size: int = 4096) -> list[str]:
@@ -114,8 +182,7 @@ def generate_final_answer(query: str, retrieved_chunks: list[str]) -> str:
 
 def main():
     load_env()
-    texts = ingest_documents('sample_docs')
-    index, chunk_map = build_memory_index(texts)
+    index, chunk_map = ingest_documents('sample_docs')
 
     query = "What is MemoRAG?"
     clue = generate_clue(query)
