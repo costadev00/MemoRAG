@@ -42,14 +42,12 @@ def build_memory_index(texts: list[str]):
 
     for doc_id, text in enumerate(texts):
         for chunk in _split_into_chunks(text):
-            # Obtain key-value compressed embedding via ChatCompletion
-            response = openai.chat.completions.create(
-                model="o4-mini",
-                messages=[{"role": "system", "content": "Embed the following text as a space-separated vector."},
-                          {"role": "user", "content": chunk}]
+            # Obtain embedding via OpenAI embeddings endpoint
+            response = openai.embeddings.create(
+                model="text-embedding-3-large",
+                input=chunk
             )
-            embedding_str = response['choices'][0]['message']['content']
-            vector = np.array([float(x) for x in embedding_str.split()], dtype='float32')
+            vector = np.array(response.data[0].embedding, dtype='float32')
             embeddings.append(vector)
             chunk_map[len(chunks)] = chunk
             chunks.append(chunk)
@@ -67,12 +65,12 @@ def build_memory_index(texts: list[str]):
 # ------------------------------------------------------------
 
 def generate_clue(query: str) -> str:
-    """Generate a short draft answer (the \"clue\") for the user query."""
+    """Generate a short draft answer (the "clue") for the user query."""
     response = openai.chat.completions.create(
         model="o4-mini",
         messages=[{"role": "user", "content": query}]
     )
-    return response['choices'][0]['message']['content']
+    return response.choices[0].message.content
 
 
 def retrieve_chunks(clue: str, index, chunk_map: dict[int, str], k: int = 3) -> list[str]:
@@ -85,16 +83,14 @@ def retrieve_chunks(clue: str, index, chunk_map: dict[int, str], k: int = 3) -> 
             {"role": "user", "content": clue}
         ]
     )
-    retrieval_query = resp['choices'][0]['message']['content']
+    retrieval_query = resp.choices[0].message.content
 
-    # Encode the retrieval query into an embedding
-    emb_resp = openai.chat.completions.create(
-        model="o4-mini",
-        messages=[{"role": "system", "content": "Embed the following text as a space-separated vector."},
-                  {"role": "user", "content": retrieval_query}]
+    # Correct: Use the embeddings endpoint for the retrieval query
+    emb_resp = openai.embeddings.create(
+        model="text-embedding-3-large",
+        input=retrieval_query
     )
-    emb_str = emb_resp['choices'][0]['message']['content']
-    query_vec = np.array([float(x) for x in emb_str.split()], dtype='float32').reshape(1, -1)
+    query_vec = np.array(emb_resp.data[0].embedding, dtype='float32').reshape(1, -1)
 
     distances, indices = index.search(query_vec, k)
     retrieved = [chunk_map[idx] for idx in indices[0] if idx in chunk_map]
@@ -110,7 +106,7 @@ def generate_final_answer(query: str, retrieved_chunks: list[str]) -> str:
         messages=[{"role": "system", "content": "Use the context to answer precisely."},
                   {"role": "user", "content": prompt}]
     )
-    return response['choices'][0]['message']['content']
+    return response.choices[0].message.content
 
 # ------------------------------------------------------------
 # Example usage
