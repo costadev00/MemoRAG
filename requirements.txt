@@ -2,3 +2,4 @@ openai
 faiss-cpu
 numpy
 python-dotenv
+PyPDF2
