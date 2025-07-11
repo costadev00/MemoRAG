@@ -47,9 +47,9 @@ MemoRAG is a next‐generation Retrieval-Augmented Generation framework designed
 ### Approach Overview
 
 1. **Ingest documents** – `ingest_documents()` reads PDFs from `sample_docs/`, splits them into ~4096 token chunks, compresses each with a small LLM and stores embeddings in a FAISS HNSW index.
-2. **Generate a clue** – `generate_clue()` produces a short draft answer for the user query.
+2. **Generate a clue** – `generate_clue(query, index, chunk_map)` uses the global memory to draft a short answer that guides retrieval.
 3. **Retrieve relevant memory** – `retrieve_chunks()` expands the clue into a retrieval query, embeds it, and searches the index for matching chunks.
-4. **Generate the final answer** – `generate_final_answer()` combines the original question with the retrieved chunk references to produce a final response.
+4. **Generate the final answer** – `generate_final_answer(query, chunks)` reads the referenced pages and crafts the final response.
 5. The optional script `ingestor.py` writes the index to `memory.index` and `memory_map.json` for later reuse.
 
 Set `MEMORAG_BASELINE=1` to disable caching and threading for baseline benchmarking (see `benchmark.py`).

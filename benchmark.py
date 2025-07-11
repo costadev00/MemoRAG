@@ -12,7 +12,7 @@ def run(baseline: bool):
     query = "How can I teach history to my student that have ADHD? What are the best pratices"
 
     start = time.perf_counter()
-    clue = memorag.generate_clue(query)
+    clue = memorag.generate_clue(query, index, chunk_map)
     clue_t = time.perf_counter() - start
 
     start = time.perf_counter()
