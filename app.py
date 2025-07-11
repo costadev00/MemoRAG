@@ -21,7 +21,7 @@ def load_index(index_path: str = "memory.index", map_path: str = "memory_map.jso
 
 
 def answer_query(query: str, index, chunk_map):
-    clue = generate_clue(query)
+    clue = generate_clue(query, index, chunk_map)
     chunks = retrieve_chunks(clue, index, chunk_map)
     if not chunks:
         return "No relevant information found."
