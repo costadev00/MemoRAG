@@ -268,8 +268,15 @@ def generate_clue(
     return response.choices[0].message.content
 
 
-def retrieve_chunks(clue: str, index, chunk_map: dict[int, dict], k: int = 3) -> list[str]:
-    """Retrieve top-k relevant chunks from the FAISS index using the clue."""
+def retrieve_chunks(
+    clue: str, index, chunk_map: dict[int, dict], k: int = 3
+) -> list:
+    """Retrieve top-k relevant chunks from the FAISS index using the clue.
+
+    Returns a list of chunk metadata dictionaries.  When ``chunk_map`` stores
+    plain strings (as in :func:`build_memory_index`), those strings are returned
+    instead.
+    """
     # Fig.3 - clue-driven retrieval from compact memory
     try:
         with _time_call("generator_time"):
@@ -285,21 +292,38 @@ def retrieve_chunks(clue: str, index, chunk_map: dict[int, dict], k: int = 3) ->
         query_vec = _get_embedding(retrieval_query).reshape(1, -1)
 
         distances, indices = index.search(query_vec, k)
-        # Format each chunk as a string for joining later
-        retrieved = [
-            f"{chunk_map[idx]['filename']} (pages {chunk_map[idx]['pages']})"
-            for idx in indices[0] if idx in chunk_map
-        ]
-        return retrieved
+        return [chunk_map[idx] for idx in indices[0] if idx in chunk_map]
     except Exception as err:
         logging.warning(f"Chunk retrieval failed: {err}")
         return []
 
 
-def generate_final_answer(query: str, retrieved_chunks: list[str]) -> str:
-    """Generate the final answer using the retrieved chunks and original query."""
-    # Sec.4.1 - generator refines clue with retrieved evidence
-    context = "\n".join(retrieved_chunks)
+def generate_final_answer(
+    query: str, retrieved_chunks: list, docs_dir: str = "sample_docs"
+) -> str:
+    """Generate the final answer using retrieved memory and the user query."""
+
+    memory_texts: list[str] = []
+    for ch in retrieved_chunks:
+        if isinstance(ch, dict) and "filename" in ch:
+            path = Path(docs_dir) / ch["filename"]
+            start, *rest = ch["pages"].split("-")
+            end = rest[0] if rest else start
+            try:
+                reader = PdfReader(str(path))
+                texts = [
+                    reader.pages[i].extract_text() or ""
+                    for i in range(int(start) - 1, int(end))
+                ]
+                memory_texts.append(" ".join(texts).strip())
+            except Exception as err:
+                logging.warning(
+                    "Failed reading %s pages %s: %s", path.name, ch["pages"], err
+                )
+        else:
+            memory_texts.append(str(ch))
+
+    context = "\n".join(memory_texts)
     prompt = f"Context:\n{context}\n\nUser question: {query}"
     with _time_call("generator_time"):
         stream = openai.chat.completions.create(
