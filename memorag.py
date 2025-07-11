@@ -201,14 +201,70 @@ def build_memory_index(texts: list[str]):
 # Retrieval step
 # ------------------------------------------------------------
 
-def generate_clue(query: str) -> str:
-    """Generate a short draft answer (the "clue") for the user query."""
-    # Sec.3.2 - draft clue produced by expressive generator
-    with _time_call("generator_time"):
-        response = openai.chat.completions.create(
-            model="o4-mini",
-            messages=[{"role": "user", "content": query}]
+def generate_clue(
+    query: str,
+    index=None,
+    chunk_map: dict[int, dict] | None = None,
+    docs_dir: str = "sample_docs",
+    k: int = 2,
+) -> str:
+    """Generate a draft "clue" using the global memory if available.
+
+    MemoRAG's lightweight system should leverage the long-range memory when
+    crafting the initial clue.  If an index and chunk map are provided, we
+    perform a quick memory search to gather a few relevant snippets and pass
+    them to the generator alongside the original query.
+    """
+
+    memory_snippets: list[str] = []
+    if index is not None and chunk_map:
+        try:
+            query_vec = _get_embedding(query).reshape(1, -1)
+            _, indices = index.search(query_vec, k)
+            for idx in indices[0]:
+                info = chunk_map.get(int(idx))
+                if not info:
+                    continue
+                path = Path(docs_dir) / info["filename"]
+                start, *rest = info["pages"].split("-")
+                end = rest[0] if rest else start
+                try:
+                    reader = PdfReader(str(path))
+                    texts = [
+                        reader.pages[i].extract_text() or ""
+                        for i in range(int(start) - 1, int(end))
+                    ]
+                    memory_snippets.append(" ".join(texts).strip())
+                except Exception as err:
+                    logging.warning(
+                        "Failed reading %s pages %s: %s", path.name, info["pages"], err
+                    )
+        except Exception as err:
+            logging.warning("Initial memory search failed: %s", err)
+
+    messages = []
+    if memory_snippets:
+        context = "\n".join(memory_snippets)
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Use the provided memory to draft a short answer that will"
+                    " guide retrieval."
+                ),
+            }
         )
+        messages.append(
+            {
+                "role": "user",
+                "content": f"Memory:\n{context}\n\nQuestion: {query}",
+            }
+        )
+    else:
+        messages = [{"role": "user", "content": query}]
+
+    with _time_call("generator_time"):
+        response = openai.chat.completions.create(model="o4-mini", messages=messages)
     return response.choices[0].message.content
 
 
@@ -266,7 +322,7 @@ def main():
     index, chunk_map = ingest_documents('sample_docs')
 
     query = "How can I teach history to my student that have ADHD? What are the best pratices"
-    clue = generate_clue(query)
+    clue = generate_clue(query, index, chunk_map)
     relevant_chunks = retrieve_chunks(clue, index, chunk_map)
     if not relevant_chunks:
         print("No relevant chunks found.")
