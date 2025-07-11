@@ -41,8 +41,9 @@ def _time_call(key: str):
 
 @lru_cache(maxsize=1024)
 def _cached_completion(messages: tuple):
-    # Fig.2 - memory compression via light model
-    response = openai.chat.completions.create(model="o4-mini", messages=list(messages))
+    # Convert tuple of tuples back to list of dicts
+    openai_messages = [{"role": role, "content": content} for role, content in messages]
+    response = openai.chat.completions.create(model="o4-mini", messages=openai_messages)
     return response.choices[0].message.content
 
 
@@ -59,8 +60,8 @@ def _compress_chunk(text: str) -> str:
         return response.choices[0].message.content
     else:
         messages = (
-            {"role": "system", "content": "Compress this chunk into key-value memory."},
-            {"role": "user", "content": text},
+            ("system", "Compress this chunk into key-value memory."),
+            ("user", text),
         )
         return _cached_completion(messages)
 
